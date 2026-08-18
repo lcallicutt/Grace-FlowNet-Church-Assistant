@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 .env
+church_profile.json
+grace_usage.json
 venv/
 .venv/
