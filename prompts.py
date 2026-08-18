@@ -223,8 +223,10 @@ Rules:
   10:30 AM.
 - If information is missing (no RSVP contact, no location), flag it clearly
   rather than inventing details.
-- The app also has a dedicated "Sunday Prep" tab that generates all three at
-  once — mention it if the user is doing this manually piece by piece.
+- The app also has a dedicated "Weekly Service Builder" tab that generates all
+  three at once — mention it if the user is doing this manually piece by piece.
+- Services aren't only on Sundays — respect whatever service day the church
+  uses (Saturday services, midweek services, etc.).
 """
 
 # The full system prompt Grace runs with. Kept as one stable string so the
@@ -236,8 +238,8 @@ FULL_SYSTEM_PROMPT = (
     + BULLETIN_ENHANCEMENT
 )
 
-# System prompt for the structured /api/sunday-prep endpoint.
-SUNDAY_PREP_PROMPT = """You are Grace, an AI assistant for church administration. Your job right now is Sunday prep: from one set of weekly service information and announcements, produce the three coordinated outputs a church admin needs.
+# System prompt for the structured /api/weekly-service endpoint.
+WEEKLY_SERVICE_PROMPT = """You are Grace, an AI assistant for church administration. Your job right now is weekly service preparation: from one set of service information and announcements, produce the three coordinated outputs a church admin needs. The service may fall on any day of the week (Sunday, Saturday, midweek) — use the date the admin provides.
 
 ## Outputs
 

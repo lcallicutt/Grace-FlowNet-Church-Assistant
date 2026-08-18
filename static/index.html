@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Grace — Church Admin Assistant</title>
+<title>Grace Ministry Hub</title>
 <style>
   :root {
     --bg: #f6f3ec;
@@ -184,7 +184,7 @@
   .btn.secondary:hover:not(:disabled) { background: var(--accent-soft); }
   .hint { font-family: system-ui, sans-serif; font-size: 0.72rem; color: var(--ink-soft); text-align: center; margin-top: 8px; }
 
-  /* ---------- Sunday Prep view ---------- */
+  /* ---------- Weekly Service Builder view ---------- */
   .card {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -287,20 +287,63 @@
   }
   .notes-box strong { display: block; margin-bottom: 6px; }
   .notes-box ul { margin-left: 20px; }
+  /* ---------- Access code lock ---------- */
+  #lock-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .lock-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px 30px;
+    max-width: 380px; width: 100%;
+    text-align: center;
+  }
+  .lock-card .logo { margin: 0 auto 12px; }
+  .lock-card h2 { font-size: 1.15rem; margin-bottom: 6px; }
+  .lock-card p { font-family: system-ui, sans-serif; font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 16px; }
+  #lock-form { display: flex; gap: 8px; }
+  #lock-input {
+    flex: 1;
+    font-family: system-ui, sans-serif;
+    font-size: 0.95rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  #lock-input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  #lock-status { min-height: 1.2em; margin-top: 10px; margin-bottom: 0 !important; color: #a33c2a !important; }
   .hidden { display: none !important; }
 </style>
 </head>
 <body>
+  <div id="lock-overlay" class="hidden">
+    <div class="lock-card">
+      <div class="logo">✝</div>
+      <h2>Grace Ministry Hub</h2>
+      <p>Enter your church’s access code to continue.</p>
+      <form id="lock-form">
+        <input id="lock-input" type="password" placeholder="Access code" autocomplete="current-password" required>
+        <button type="submit" class="btn">Unlock</button>
+      </form>
+      <p id="lock-status"></p>
+    </div>
+  </div>
   <header>
     <div class="logo">✝</div>
     <div>
-      <h1>Grace</h1>
-      <p>Your church administration assistant</p>
+      <h1>Grace Ministry Hub</h1>
+      <p>Your church’s central workspace for service preparation, volunteer coordination, communications, events, and ministry planning</p>
     </div>
     <div class="spacer"></div>
     <nav>
       <button class="nav-tab active" data-view="chat-view">Chat</button>
-      <button class="nav-tab" data-view="prep-view">Sunday Prep</button>
+      <button class="nav-tab" data-view="prep-view">Weekly Service Builder</button>
       <button class="nav-tab" data-view="profile-view">Church Profile</button>
     </nav>
     <button id="reset-btn" title="Start a fresh conversation">New conversation</button>
@@ -313,7 +356,7 @@
         <div class="msg grace">
           <div class="bubble md">
             <p>Hi there! I'm <strong>Grace</strong>, your church administration assistant. 🌷</p>
-            <p>I can help you schedule volunteers, draft announcements and social media posts, plan events, and support your ministry work. And when it's time to get Sunday ready, the <strong>Sunday Prep</strong> tab builds your bulletin, slides, and announcer sheet all at once.</p>
+            <p>I can help you schedule volunteers, draft announcements and social media posts, plan events, and support your ministry work. And when it's time to prepare for your service, the <strong>Weekly Service Builder</strong> tab creates your bulletin, projection content, and announcer sheet all at once.</p>
           </div>
         </div>
         <div class="suggestions" id="suggestions">
@@ -325,11 +368,11 @@
       </div>
     </div>
 
-    <!-- ============ Sunday Prep view ============ -->
+    <!-- ============ Weekly Service Builder view ============ -->
     <div class="container wide hidden" id="prep-view">
       <div class="card">
-        <h2>Sunday Prep</h2>
-        <p class="sub">Enter this week's information once — Grace writes the bulletin, the slideshow content, and the announcer sheet together, so every date, time, and contact matches across all three.</p>
+        <h2>Weekly Service Builder</h2>
+        <p class="sub">Enter the week’s information once. Grace creates your bulletin, projection content, and announcer sheet with consistent dates, times, and contact information — whatever day your church gathers.</p>
         <form id="prep-form">
           <div class="form-grid">
             <div class="field">
@@ -337,8 +380,8 @@
               <input id="church-name" placeholder="Greater Emmanuel">
             </div>
             <div class="field">
-              <label for="service-date">Service date</label>
-              <input id="service-date" placeholder="Sunday, March 9, 2026">
+              <label for="service-date">Service day &amp; date</label>
+              <input id="service-date" placeholder="Sunday, March 9 — or Saturday, March 8">
             </div>
             <div class="field">
               <label for="service-time">Service time(s)</label>
@@ -365,7 +408,7 @@
             </div>
           </div>
           <div class="prep-actions">
-            <button type="submit" class="btn" id="prep-btn">Generate Sunday Prep</button>
+            <button type="submit" class="btn" id="prep-btn">Build Service Materials</button>
             <span id="prep-status"></span>
           </div>
         </form>
@@ -412,7 +455,7 @@
     <div class="container hidden" id="profile-view">
       <div class="card">
         <h2>Church Profile</h2>
-        <p class="sub">Save your church's details once — Grace uses them in every chat, and Sunday Prep fills them in automatically each week.</p>
+        <p class="sub">Save your church's details once — Grace uses them in every chat, and the Weekly Service Builder fills them in automatically each week.</p>
         <form id="profile-form">
           <div class="form-grid">
             <div class="field">
@@ -432,7 +475,7 @@
               <textarea id="p-order" rows="2" placeholder="Welcome, Worship (3 songs), Offering, Sermon, Closing song, Benediction"></textarea>
             </div>
             <div class="field full">
-              <label for="p-standing">Standing weekly announcements (included in every Sunday Prep automatically)</label>
+              <label for="p-standing">Standing weekly announcements (included in every Weekly Service Builder run automatically)</label>
               <textarea id="p-standing" rows="4" placeholder="- Wednesday Bible study, 7pm in Room 104
 - Nursery available during both services
 - Give online at greateremmanuel.org/give"></textarea>
@@ -474,6 +517,73 @@
 
   let sessionId = sessionStorage.getItem("grace_session") || crypto.randomUUID();
   sessionStorage.setItem("grace_session", sessionId);
+
+  /* ---------- Access code gate ---------- */
+  const lockOverlay = document.getElementById("lock-overlay");
+  const lockForm = document.getElementById("lock-form");
+  const lockInput = document.getElementById("lock-input");
+  const lockStatus = document.getElementById("lock-status");
+  let accessCode = sessionStorage.getItem("grace_code") || "";
+
+  function showLock(message) {
+    lockStatus.textContent = message || "";
+    lockOverlay.classList.remove("hidden");
+    lockInput.focus();
+  }
+
+  // Wraps fetch: attaches the access code and re-locks on 401.
+  function api(path, options) {
+    options = options || {};
+    options.headers = Object.assign({}, options.headers);
+    if (accessCode) options.headers["X-Access-Code"] = accessCode;
+    return fetch(path, options).then((res) => {
+      if (res.status === 401 && path !== "/api/auth") {
+        sessionStorage.removeItem("grace_code");
+        accessCode = "";
+        showLock("Your access code is no longer valid — please enter it again.");
+      }
+      return res;
+    });
+  }
+
+  fetch("/api/auth")
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.required) return;
+      if (!accessCode) { showLock(); return; }
+      // Verify the stored code quietly; re-lock if it changed.
+      fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: accessCode }),
+      }).then((r) => { if (!r.ok) { sessionStorage.removeItem("grace_code"); accessCode = ""; showLock(); } });
+    })
+    .catch(() => {});
+
+  lockForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = lockInput.value.trim();
+    if (!code) return;
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      if (res.ok) {
+        accessCode = code;
+        sessionStorage.setItem("grace_code", code);
+        lockInput.value = "";
+        lockOverlay.classList.add("hidden");
+        input.focus();
+      } else {
+        lockStatus.textContent = "That code didn’t work — please check it and try again.";
+        lockInput.select();
+      }
+    } catch (_) {
+      lockStatus.textContent = "Couldn’t reach the server. Please try again.";
+    }
+  });
 
   function escapeHtml(s) {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -573,7 +683,7 @@
     const typingBubble = addTyping();
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await api("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, session_id: sessionId }),
@@ -618,7 +728,7 @@
   });
 
   resetBtn.addEventListener("click", async () => {
-    await fetch("/api/reset", {
+    await api("/api/reset", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: sessionId }),
@@ -628,7 +738,7 @@
     location.reload();
   });
 
-  /* ---------- Sunday Prep ---------- */
+  /* ---------- Weekly Service Builder ---------- */
   const prepForm = document.getElementById("prep-form");
   const prepBtn = document.getElementById("prep-btn");
   const prepStatus = document.getElementById("prep-status");
@@ -662,10 +772,10 @@
 
     prepBtn.disabled = true;
     prepStatus.classList.remove("error");
-    prepStatus.textContent = "Grace is writing your bulletin, slides, and announcer sheet… (this can take a minute)";
+    prepStatus.textContent = "Grace is creating your bulletin, projection content, and announcer sheet… (this can take a minute)";
 
     try {
-      const res = await fetch("/api/sunday-prep", {
+      const res = await api("/api/weekly-service", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -778,7 +888,7 @@
     for (const [key, id] of Object.entries(profileFieldMap)) {
       document.getElementById(id).value = profile[key] || "";
     }
-    // Prefill Sunday Prep with the saved basics (only where empty, so we
+    // Prefill the Weekly Service Builder with the saved basics (only where empty, so we
     // never clobber something the admin typed this session).
     const prefill = {
       "church-name": profile.church_name,
@@ -795,7 +905,7 @@
     }
   }
 
-  fetch("/api/profile")
+  api("/api/profile")
     .then((r) => r.json())
     .then((data) => { if (data.success) applyProfile(data.profile); })
     .catch(() => {});
@@ -809,7 +919,7 @@
     profileBtn.disabled = true;
     profileStatus.textContent = "Saving…";
     try {
-      const res = await fetch("/api/profile", {
+      const res = await api("/api/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -817,7 +927,7 @@
       const data = await res.json();
       if (data.success) {
         applyProfile(data.profile);
-        profileStatus.textContent = "Saved! Grace will use this in chat and Sunday Prep.";
+        profileStatus.textContent = "Saved! Grace will use this in chat and the Weekly Service Builder.";
       } else {
         profileStatus.textContent = "Couldn't save — please try again.";
       }

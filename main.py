@@ -2,11 +2,12 @@
 
 Flask backend that serves the chat UI and proxies conversations to the
 Claude API with per-session conversation memory, plus a structured
-"Sunday Prep" endpoint that generates a bulletin, slideshow content, and
+"Weekly Service Builder" endpoint that generates a bulletin, slideshow content, and
 announcer sheet from one set of weekly information.
 """
 
 import datetime
+import hmac
 import json
 import os
 import threading
@@ -15,19 +16,21 @@ import uuid
 import anthropic
 from flask import Flask, jsonify, request, send_from_directory
 
-from prompts import FULL_SYSTEM_PROMPT, SUNDAY_PREP_PROMPT
+from prompts import FULL_SYSTEM_PROMPT, WEEKLY_SERVICE_PROMPT
 
 MODEL = os.environ.get("GRACE_MODEL", "claude-opus-4-8")
 MAX_TOKENS = int(os.environ.get("GRACE_MAX_TOKENS", "4096"))
-SUNDAY_PREP_MAX_TOKENS = int(os.environ.get("GRACE_SUNDAY_PREP_MAX_TOKENS", "8192"))
+SERVICE_BUILDER_MAX_TOKENS = int(
+    os.environ.get("GRACE_SERVICE_BUILDER_MAX_TOKENS", "8192")
+)
 # Keep the last N messages (user + assistant turns) per session so long
 # conversations don't grow without bound.
 MAX_HISTORY_MESSAGES = 40
 
-# Schema for the Sunday Prep structured output: one generation returns the
+# Schema for the Weekly Service Builder structured output: one generation returns the
 # bulletin, the slide deck content, and the announcer script together so the
 # facts in each stay consistent.
-SUNDAY_PREP_SCHEMA = {
+WEEKLY_SERVICE_SCHEMA = {
     "type": "object",
     "properties": {
         "bulletin": {
@@ -66,6 +69,44 @@ SUNDAY_PREP_SCHEMA = {
 
 app = Flask(__name__, static_folder="static")
 client = anthropic.Anthropic()
+
+# ---------------------------------------------------------------------------
+# Passcode gate: when GRACE_ACCESS_CODE is set, every /api/* route (except
+# health and the auth check itself) requires the code in an X-Access-Code
+# header. Leave it unset for open local development.
+# ---------------------------------------------------------------------------
+ACCESS_CODE = os.environ.get("GRACE_ACCESS_CODE", "").strip()
+AUTH_EXEMPT_PATHS = {"/api/health", "/api/auth"}
+
+
+def _code_ok(supplied):
+    return bool(ACCESS_CODE) and hmac.compare_digest(supplied or "", ACCESS_CODE)
+
+
+@app.before_request
+def enforce_access_code():
+    if not ACCESS_CODE:
+        return None
+    if not request.path.startswith("/api/") or request.path in AUTH_EXEMPT_PATHS:
+        return None
+    if _code_ok(request.headers.get("X-Access-Code")):
+        return None
+    return (
+        jsonify({"success": False, "error": "Access code required.", "auth_required": True}),
+        401,
+    )
+
+
+@app.route("/api/auth", methods=["GET", "POST"])
+def auth():
+    """GET: is a code required? POST {code}: verify a code."""
+    if request.method == "GET":
+        return jsonify({"success": True, "required": bool(ACCESS_CODE)})
+    data = request.get_json(silent=True) or {}
+    if not ACCESS_CODE:
+        return jsonify({"success": True, "valid": True, "required": False})
+    valid = _code_ok(str(data.get("code") or ""))
+    return jsonify({"success": True, "valid": valid, "required": True}), (200 if valid else 401)
 
 # In-memory conversation store: {session_id: [{"role": ..., "content": ...}]}
 # Fine for a single-process deployment; swap for Redis/a database if you
@@ -351,8 +392,8 @@ def chat():
     )
 
 
-@app.route("/api/sunday-prep", methods=["POST"])
-def sunday_prep():
+@app.route("/api/weekly-service", methods=["POST"])
+def weekly_service():
     """Generate a bulletin, slideshow content, and announcer sheet from one
     set of weekly service info, guaranteed consistent because it's a single
     structured generation."""
@@ -410,22 +451,22 @@ def sunday_prep():
 
     response, error = call_claude(
         model=MODEL,
-        max_tokens=SUNDAY_PREP_MAX_TOKENS,
+        max_tokens=SERVICE_BUILDER_MAX_TOKENS,
         system=[
             {
                 "type": "text",
-                "text": SUNDAY_PREP_PROMPT,
+                "text": WEEKLY_SERVICE_PROMPT,
                 "cache_control": {"type": "ephemeral"},
             }
         ],
         output_config={
-            "format": {"type": "json_schema", "schema": SUNDAY_PREP_SCHEMA}
+            "format": {"type": "json_schema", "schema": WEEKLY_SERVICE_SCHEMA}
         },
         messages=[{"role": "user", "content": "\n\n".join(parts)}],
     )
     if error:
         return error
-    record_usage("sunday_prep", response.usage)
+    record_usage("weekly_service", response.usage)
 
     if response.stop_reason == "refusal":
         return (
@@ -447,7 +488,7 @@ def sunday_prep():
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
-        app.logger.error("Sunday Prep returned unparseable output: %.200s", raw)
+        app.logger.error("Weekly Service Builder returned unparseable output: %.200s", raw)
         return (
             jsonify(
                 {"success": False, "error": "Grace produced an unreadable result. Please try again."}
