@@ -301,6 +301,7 @@
     <nav>
       <button class="nav-tab active" data-view="chat-view">Chat</button>
       <button class="nav-tab" data-view="prep-view">Sunday Prep</button>
+      <button class="nav-tab" data-view="profile-view">Church Profile</button>
     </nav>
     <button id="reset-btn" title="Start a fresh conversation">New conversation</button>
   </header>
@@ -407,6 +408,47 @@
         </div>
       </div>
     </div>
+    <!-- ============ Church Profile view ============ -->
+    <div class="container hidden" id="profile-view">
+      <div class="card">
+        <h2>Church Profile</h2>
+        <p class="sub">Save your church's details once — Grace uses them in every chat, and Sunday Prep fills them in automatically each week.</p>
+        <form id="profile-form">
+          <div class="form-grid">
+            <div class="field">
+              <label for="p-church-name">Church name</label>
+              <input id="p-church-name" placeholder="Greater Emmanuel">
+            </div>
+            <div class="field">
+              <label for="p-service-times">Service time(s)</label>
+              <input id="p-service-times" placeholder="Sundays 9:00 AM and 11:00 AM">
+            </div>
+            <div class="field full">
+              <label for="p-office-contact">Church office contact (used wherever announcements need a contact)</label>
+              <input id="p-office-contact" placeholder="(555) 123-4567 · office@greateremmanuel.org">
+            </div>
+            <div class="field full">
+              <label for="p-order">Usual order of service</label>
+              <textarea id="p-order" rows="2" placeholder="Welcome, Worship (3 songs), Offering, Sermon, Closing song, Benediction"></textarea>
+            </div>
+            <div class="field full">
+              <label for="p-standing">Standing weekly announcements (included in every Sunday Prep automatically)</label>
+              <textarea id="p-standing" rows="4" placeholder="- Wednesday Bible study, 7pm in Room 104
+- Nursery available during both services
+- Give online at greateremmanuel.org/give"></textarea>
+            </div>
+            <div class="field full">
+              <label for="p-notes">Notes for Grace (pronunciations, tone preferences, etc.)</label>
+              <textarea id="p-notes" rows="2" placeholder="Pastor Nkemelu is pronounced en-keh-MEH-loo; we say 'worship center', not 'sanctuary'"></textarea>
+            </div>
+          </div>
+          <div class="prep-actions">
+            <button type="submit" class="btn" id="profile-btn">Save profile</button>
+            <span id="profile-status"></span>
+          </div>
+        </form>
+      </div>
+    </div>
   </main>
 
   <footer id="chat-footer">
@@ -487,7 +529,8 @@
 
   /* ---------- View switching ---------- */
   const views = { "chat-view": document.getElementById("chat-view"),
-                  "prep-view": document.getElementById("prep-view") };
+                  "prep-view": document.getElementById("prep-view"),
+                  "profile-view": document.getElementById("profile-view") };
   document.querySelectorAll(".nav-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".nav-tab").forEach((t) => t.classList.remove("active"));
@@ -715,6 +758,73 @@
                  : "bulletin." + ext;
       a.click();
       URL.revokeObjectURL(a.href);
+    }
+  });
+
+  /* ---------- Church Profile ---------- */
+  const profileForm = document.getElementById("profile-form");
+  const profileBtn = document.getElementById("profile-btn");
+  const profileStatus = document.getElementById("profile-status");
+  const profileFieldMap = {
+    church_name: "p-church-name",
+    service_times: "p-service-times",
+    office_contact: "p-office-contact",
+    order_of_service: "p-order",
+    standing_announcements: "p-standing",
+    notes: "p-notes",
+  };
+
+  function applyProfile(profile) {
+    for (const [key, id] of Object.entries(profileFieldMap)) {
+      document.getElementById(id).value = profile[key] || "";
+    }
+    // Prefill Sunday Prep with the saved basics (only where empty, so we
+    // never clobber something the admin typed this session).
+    const prefill = {
+      "church-name": profile.church_name,
+      "service-time": profile.service_times,
+      "order-of-service": profile.order_of_service,
+    };
+    for (const [id, value] of Object.entries(prefill)) {
+      const el = document.getElementById(id);
+      if (value && !el.value.trim()) el.value = value;
+    }
+    if (profile.standing_announcements) {
+      document.querySelector('label[for="announcements"]').textContent =
+        "This week's announcements * (your standing weekly announcements are added automatically)";
+    }
+  }
+
+  fetch("/api/profile")
+    .then((r) => r.json())
+    .then((data) => { if (data.success) applyProfile(data.profile); })
+    .catch(() => {});
+
+  profileForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const payload = {};
+    for (const [key, id] of Object.entries(profileFieldMap)) {
+      payload[key] = document.getElementById(id).value;
+    }
+    profileBtn.disabled = true;
+    profileStatus.textContent = "Saving…";
+    try {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data.success) {
+        applyProfile(data.profile);
+        profileStatus.textContent = "Saved! Grace will use this in chat and Sunday Prep.";
+      } else {
+        profileStatus.textContent = "Couldn't save — please try again.";
+      }
+    } catch (_) {
+      profileStatus.textContent = "Couldn't reach the server. Please try again.";
+    } finally {
+      profileBtn.disabled = false;
     }
   });
 

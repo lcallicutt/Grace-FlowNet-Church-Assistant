@@ -72,6 +72,65 @@ client = anthropic.Anthropic()
 conversations = {}
 conversations_lock = threading.Lock()
 
+# ---------------------------------------------------------------------------
+# Church profile: persisted to a JSON file so the admin enters their church's
+# boilerplate (name, service times, standing announcements) exactly once.
+# ---------------------------------------------------------------------------
+PROFILE_PATH = os.environ.get("GRACE_PROFILE_PATH", "church_profile.json")
+PROFILE_FIELDS = (
+    "church_name",
+    "service_times",
+    "office_contact",
+    "order_of_service",
+    "standing_announcements",
+    "notes",
+)
+profile_lock = threading.Lock()
+
+
+def load_profile():
+    try:
+        with open(PROFILE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return {k: str(data.get(k, "") or "") for k in PROFILE_FIELDS}
+
+
+def save_profile(data):
+    profile = {k: str(data.get(k, "") or "").strip() for k in PROFILE_FIELDS}
+    with profile_lock:
+        with open(PROFILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(profile, f, indent=2)
+    return profile
+
+
+def profile_context_block(profile):
+    """Render the saved profile as a system-prompt context block for chat.
+
+    Returned as a SECOND system block after the cached main prompt, so
+    editing the profile never invalidates the big prompt's cache prefix.
+    """
+    lines = []
+    labels = {
+        "church_name": "Church name",
+        "service_times": "Service times",
+        "office_contact": "Church office contact",
+        "order_of_service": "Usual order of service",
+        "standing_announcements": "Standing weekly announcements",
+        "notes": "Notes (pronunciations, preferences, etc.)",
+    }
+    for key, label in labels.items():
+        if profile.get(key):
+            lines.append(f"{label}: {profile[key]}")
+    if not lines:
+        return None
+    return (
+        "## This Church's Saved Profile\n"
+        "The administrator saved this profile — use it instead of asking for "
+        "these details again:\n" + "\n".join(lines)
+    )
+
 
 def call_claude(**kwargs):
     """Call the Claude API, mapping failures to (None, (json, status)).
@@ -165,19 +224,26 @@ def chat():
 
     messages = history + [{"role": "user", "content": user_message}]
 
+    system_blocks = [
+        {
+            "type": "text",
+            "text": FULL_SYSTEM_PROMPT,
+            # Cache the large, stable system prompt so repeat
+            # requests read it at ~10% of the input price.
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+    profile_block = profile_context_block(load_profile())
+    if profile_block:
+        # Placed after the cache breakpoint so profile edits don't
+        # invalidate the cached main prompt.
+        system_blocks.append({"type": "text", "text": profile_block})
+
     response, error = call_claude(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         thinking={"type": "adaptive"},
-        system=[
-            {
-                "type": "text",
-                "text": FULL_SYSTEM_PROMPT,
-                # Cache the large, stable system prompt so repeat
-                # requests read it at ~10% of the input price.
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
+        system=system_blocks,
         messages=messages,
     )
     if error:
@@ -219,11 +285,16 @@ def sunday_prep():
     structured generation."""
     data = request.get_json(silent=True) or {}
 
-    church_name = (data.get("church_name") or "").strip()
+    profile = load_profile()
+
+    # Blank request fields fall back to the saved church profile.
+    church_name = (data.get("church_name") or "").strip() or profile.get("church_name", "")
     service_date = (data.get("service_date") or "").strip()
-    service_time = (data.get("service_time") or "").strip()
+    service_time = (data.get("service_time") or "").strip() or profile.get("service_times", "")
     sermon = (data.get("sermon") or "").strip()
-    order_of_service = (data.get("order_of_service") or "").strip()
+    order_of_service = (data.get("order_of_service") or "").strip() or profile.get(
+        "order_of_service", ""
+    )
     announcements = (data.get("announcements") or "").strip()
     extra_notes = (data.get("extra_notes") or "").strip()
 
@@ -250,6 +321,17 @@ def sunday_prep():
     if order_of_service:
         parts.append(f"Order of service:\n{order_of_service}")
     parts.append(f"This week's announcements:\n{announcements}")
+    if profile.get("standing_announcements"):
+        parts.append(
+            "Standing weekly announcements (include these every week, after "
+            f"this week's items):\n{profile['standing_announcements']}"
+        )
+    if profile.get("office_contact"):
+        parts.append(
+            f"Church office contact (use where a contact is needed): {profile['office_contact']}"
+        )
+    if profile.get("notes"):
+        parts.append(f"Saved church notes (pronunciations, preferences):\n{profile['notes']}")
     if extra_notes:
         parts.append(f"Additional notes:\n{extra_notes}")
 
@@ -300,6 +382,15 @@ def sunday_prep():
         )
 
     return jsonify({"success": True, **result})
+
+
+@app.route("/api/profile", methods=["GET", "POST"])
+def profile():
+    if request.method == "GET":
+        return jsonify({"success": True, "profile": load_profile()})
+    data = request.get_json(silent=True) or {}
+    saved = save_profile(data)
+    return jsonify({"success": True, "profile": saved})
 
 
 @app.route("/api/reset", methods=["POST"])

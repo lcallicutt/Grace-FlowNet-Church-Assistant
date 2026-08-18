@@ -3,6 +3,7 @@
 Grace is a web app that helps church staff, pastors, and volunteers with:
 
 - **Sunday Prep** — enter the week's info once and Grace generates the printed **bulletin**, the projection **slideshow content**, and the **announcer sheet** together, with every date, time, and contact guaranteed consistent across all three
+- **Church Profile** — save your church's name, service times, office contact, usual order of service, and standing weekly announcements once; chat uses them as context and Sunday Prep fills them in automatically every week
 - **Volunteer scheduling** — greeters, ushers, nursery, tech booth, and more, with rotation patterns and backups
 - **Communications** — announcements, bulletins, newsletters, and Facebook/Instagram posts
 - **Event planning** — timelines, checklists, supplies, and volunteer needs for potlucks, retreats, VBS, holiday services
@@ -38,7 +39,9 @@ Built with Flask and the Claude API.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | — (required) | Your Claude API key |
 | `GRACE_MODEL` | `claude-opus-4-8` | Which Claude model to use |
-| `GRACE_MAX_TOKENS` | `4096` | Max response length |
+| `GRACE_MAX_TOKENS` | `4096` | Max chat response length |
+| `GRACE_SUNDAY_PREP_MAX_TOKENS` | `8192` | Max Sunday Prep response length |
+| `GRACE_PROFILE_PATH` | `church_profile.json` | Where the church profile is stored |
 | `PORT` | `5000` | Server port |
 
 ## API
@@ -47,6 +50,7 @@ Built with Flask and the Claude API.
 | --- | --- | --- | --- |
 | `/api/chat` | POST | `{"message": "...", "session_id": "..."}` | Send a message; returns `{"success", "session_id", "response"}` |
 | `/api/sunday-prep` | POST | `{"announcements": "...", "church_name", "service_date", "service_time", "sermon", "order_of_service", "extra_notes"}` (only `announcements` required) | Returns `{"bulletin", "slides": [{"title", "body"}], "announcer_sheet", "notes"}` |
+| `/api/profile` | GET / POST | POST: `{"church_name", "service_times", "office_contact", "order_of_service", "standing_announcements", "notes"}` | Read or save the church profile (persisted to `church_profile.json`) |
 | `/api/reset` | POST | `{"session_id": "..."}` | Clear a conversation |
 | `/api/health` | GET | — | Health check |
 
