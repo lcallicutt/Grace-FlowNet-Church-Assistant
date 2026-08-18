@@ -2,6 +2,7 @@
 
 Grace is a web app that helps church staff, pastors, and volunteers with:
 
+- **Sunday Prep** — enter the week's info once and Grace generates the printed **bulletin**, the projection **slideshow content**, and the **announcer sheet** together, with every date, time, and contact guaranteed consistent across all three
 - **Volunteer scheduling** — greeters, ushers, nursery, tech booth, and more, with rotation patterns and backups
 - **Communications** — announcements, bulletins, newsletters, and Facebook/Instagram posts
 - **Event planning** — timelines, checklists, supplies, and volunteer needs for potlucks, retreats, VBS, holiday services
@@ -45,8 +46,18 @@ Built with Flask and the Claude API.
 | Endpoint | Method | Body | Purpose |
 | --- | --- | --- | --- |
 | `/api/chat` | POST | `{"message": "...", "session_id": "..."}` | Send a message; returns `{"success", "session_id", "response"}` |
+| `/api/sunday-prep` | POST | `{"announcements": "...", "church_name", "service_date", "service_time", "sermon", "order_of_service", "extra_notes"}` (only `announcements` required) | Returns `{"bulletin", "slides": [{"title", "body"}], "announcer_sheet", "notes"}` |
 | `/api/reset` | POST | `{"session_id": "..."}` | Clear a conversation |
 | `/api/health` | GET | — | Health check |
+
+### Sunday Prep
+
+The **Sunday Prep** tab is built for the weekly grind: bulletins, slideshow
+updates, and the announcer sheet. It uses a single structured Claude
+generation (JSON schema output) to produce all three at once, so the facts
+can't drift between formats. Each result tab has copy and download buttons,
+and Grace lists anything to double-check (missing RSVP contacts, ambiguous
+dates) in a "Grace noticed" callout instead of inventing details.
 
 Conversation memory is per `session_id` and kept in server memory — Grace
 remembers your church name, service times, and volunteers within a
