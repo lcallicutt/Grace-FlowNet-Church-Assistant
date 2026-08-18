@@ -6,6 +6,7 @@ Claude API with per-session conversation memory, plus a structured
 announcer sheet from one set of weekly information.
 """
 
+import datetime
 import json
 import os
 import threading
@@ -103,6 +104,77 @@ def save_profile(data):
         with open(PROFILE_PATH, "w", encoding="utf-8") as f:
             json.dump(profile, f, indent=2)
     return profile
+
+
+# ---------------------------------------------------------------------------
+# Usage tracking: per-day request and token counts, persisted to a JSON file
+# so you can watch pilot usage without opening the Anthropic Console.
+# ---------------------------------------------------------------------------
+USAGE_PATH = os.environ.get("GRACE_USAGE_PATH", "grace_usage.json")
+usage_lock = threading.Lock()
+
+# claude-opus-4-8 per-million-token rates (USD), for the cost estimate only.
+# Update these if you change GRACE_MODEL to a different pricing tier.
+PRICE_PER_MTOK = {
+    "input_tokens": 5.00,
+    "output_tokens": 25.00,
+    "cache_read_input_tokens": 0.50,
+    "cache_creation_input_tokens": 6.25,
+}
+USAGE_TOKEN_FIELDS = tuple(PRICE_PER_MTOK)
+
+
+def _load_usage():
+    try:
+        with open(USAGE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"days": {}}
+
+
+def _estimated_cost(counts):
+    return round(
+        sum(counts.get(k, 0) * rate / 1_000_000 for k, rate in PRICE_PER_MTOK.items()),
+        4,
+    )
+
+
+def record_usage(endpoint, usage):
+    """Add one API response's usage to today's counters."""
+    today = datetime.date.today().isoformat()
+    with usage_lock:
+        data = _load_usage()
+        day = data["days"].setdefault(
+            today, {"requests": {}, **{k: 0 for k in USAGE_TOKEN_FIELDS}}
+        )
+        day["requests"][endpoint] = day["requests"].get(endpoint, 0) + 1
+        for field in USAGE_TOKEN_FIELDS:
+            day[field] += getattr(usage, field, None) or 0
+        with open(USAGE_PATH, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+
+
+def usage_summary():
+    with usage_lock:
+        data = _load_usage()
+    days = data["days"]
+    today = datetime.date.today().isoformat()
+    totals = {"requests": 0, **{k: 0 for k in USAGE_TOKEN_FIELDS}}
+    for day in days.values():
+        totals["requests"] += sum(day["requests"].values())
+        for field in USAGE_TOKEN_FIELDS:
+            totals[field] += day.get(field, 0)
+    recent = {
+        date: {**counts, "estimated_cost_usd": _estimated_cost(counts)}
+        for date, counts in sorted(days.items(), reverse=True)[:30]
+    }
+    return {
+        "model": MODEL,
+        "totals": {**totals, "estimated_cost_usd": _estimated_cost(totals)},
+        "today": recent.get(today),
+        "days": recent,
+        "note": "Cost is an estimate from claude-opus-4-8 list prices; the Claude Console is authoritative.",
+    }
 
 
 def profile_context_block(profile):
@@ -248,6 +320,7 @@ def chat():
     )
     if error:
         return error
+    record_usage("chat", response.usage)
 
     if response.stop_reason == "refusal":
         return jsonify(
@@ -352,6 +425,7 @@ def sunday_prep():
     )
     if error:
         return error
+    record_usage("sunday_prep", response.usage)
 
     if response.stop_reason == "refusal":
         return (
@@ -382,6 +456,11 @@ def sunday_prep():
         )
 
     return jsonify({"success": True, **result})
+
+
+@app.route("/api/usage")
+def usage():
+    return jsonify({"success": True, **usage_summary()})
 
 
 @app.route("/api/profile", methods=["GET", "POST"])

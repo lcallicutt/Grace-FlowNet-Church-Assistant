@@ -51,6 +51,7 @@ Built with Flask and the Claude API.
 | `/api/chat` | POST | `{"message": "...", "session_id": "..."}` | Send a message; returns `{"success", "session_id", "response"}` |
 | `/api/sunday-prep` | POST | `{"announcements": "...", "church_name", "service_date", "service_time", "sermon", "order_of_service", "extra_notes"}` (only `announcements` required) | Returns `{"bulletin", "slides": [{"title", "body"}], "announcer_sheet", "notes"}` |
 | `/api/profile` | GET / POST | POST: `{"church_name", "service_times", "office_contact", "order_of_service", "standing_announcements", "notes"}` | Read or save the church profile (persisted to `church_profile.json`) |
+| `/api/usage` | GET | — | Per-day request counts, token usage, and an estimated cost in USD (persisted to `grace_usage.json`) |
 | `/api/reset` | POST | `{"session_id": "..."}` | Clear a conversation |
 | `/api/health` | GET | — | Health check |
 
