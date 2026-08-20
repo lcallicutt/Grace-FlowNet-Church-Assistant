@@ -90,10 +90,20 @@ conversation. The last 40 messages are retained per session.
 ## Project Layout
 
 ```
-main.py             Flask app + Claude API integration
-prompts.py          Grace's system prompt and enhancements
-static/index.html   Chat UI (self-contained HTML/CSS/JS)
-requirements.txt    Python dependencies
+main.py                 Flask app + Claude API integration
+prompts.py              Grace's system prompt and enhancements
+static/index.html       Chat UI (HTML/CSS/JS)
+static/markdown.js      Markdown renderer (shared with the test suite)
+tests/test_markdown.js  Renderer regression tests (node)
+tests/test_app.py       Backend tests (pytest)
+requirements.txt        Python dependencies
+```
+
+## Running Tests
+
+```bash
+node tests/test_markdown.js       # renderer: formatting, numbers/times, XSS escaping
+python -m pytest tests/test_app.py  # backend: endpoints, profile, usage, access gate
 ```
 
 ## Notes

@@ -323,6 +323,12 @@ def index():
     return send_from_directory(app.static_folder, "index.html")
 
 
+@app.route("/markdown.js")
+def markdown_js():
+    # index.html loads this relative to "/", not under /static/.
+    return send_from_directory(app.static_folder, "markdown.js")
+
+
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok", "model": MODEL})

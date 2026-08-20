@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Grace Ministry Hub</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='48' fill='%238a5a44'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='white'%3E%E2%9C%9D%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #f6f3ec;
@@ -504,6 +505,7 @@
     </div>
   </footer>
 
+<script src="markdown.js"></script>
 <script>
 (function () {
   const chatArea = document.getElementById("chat-area");
@@ -585,57 +587,7 @@
     }
   });
 
-  function escapeHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
-
-  // Minimal markdown rendering: code blocks, headers, bold/italic, lists, hr.
-  function renderMarkdown(text) {
-    const codeBlocks = [];
-    text = text.replace(/```([\s\S]*?)```/g, (_, code) => {
-      codeBlocks.push(code.replace(/^\w*\n/, ""));
-      return " " + (codeBlocks.length - 1) + " ";
-    });
-
-    let html = escapeHtml(text);
-    html = html
-      .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-      .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-      .replace(/^# (.*)$/gm, "<h1>$1</h1>")
-      .replace(/^---+$/gm, "<hr>")
-      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-      .replace(/`([^`\n]+)`/g, "<code>$1</code>");
-
-    // Lists: group consecutive "- " or "N. " lines.
-    const lines = html.split("\n");
-    const out = [];
-    let listType = null;
-    for (const line of lines) {
-      const ul = line.match(/^\s*[-•]\s+(.*)/);
-      const ol = line.match(/^\s*\d+\.\s+(.*)/);
-      if (ul || ol) {
-        const want = ul ? "ul" : "ol";
-        if (listType !== want) {
-          if (listType) out.push("</" + listType + ">");
-          out.push("<" + want + ">");
-          listType = want;
-        }
-        out.push("<li>" + (ul ? ul[1] : ol[1]) + "</li>");
-      } else {
-        if (listType) { out.push("</" + listType + ">"); listType = null; }
-        if (line.match(/^<h\d|^<hr/)) out.push(line);
-        else if (line.trim() === "") out.push("");
-        else out.push("<p>" + line + "</p>");
-      }
-    }
-    if (listType) out.push("</" + listType + ">");
-    html = out.join("\n");
-
-    html = html.replace(/ (\d+) /g, (_, i) =>
-      "<pre><code>" + escapeHtml(codeBlocks[+i]) + "</code></pre>");
-    return html;
-  }
+  const { escapeHtml, renderMarkdown, safeRenderMarkdown } = window.GraceMarkdown;
 
   /* ---------- View switching ---------- */
   const views = { "chat-view": document.getElementById("chat-view"),
@@ -683,20 +635,30 @@
     const typingBubble = addTyping();
 
     try {
-      const res = await api("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, session_id: sessionId }),
-      });
-      const data = await res.json();
+      // Request phase: only network / response-parsing failures land in
+      // this catch, so its message is accurate.
+      let data = null;
+      try {
+        const res = await api("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, session_id: sessionId }),
+        });
+        data = await res.json();
+      } catch (err) {
+        console.error("Chat request failed:", err);
+        typingBubble.innerHTML =
+          "<p><em>Couldn't reach the server or read its response — please check your connection and try again.</em></p>";
+        return;
+      }
+      // Render phase: safeRenderMarkdown never throws — it logs the real
+      // error and falls back to escaped plain text.
       if (data.success) {
-        typingBubble.innerHTML = renderMarkdown(data.response);
+        typingBubble.innerHTML = safeRenderMarkdown(data.response);
       } else {
         typingBubble.innerHTML =
           "<p><em>Sorry, something went wrong: " + escapeHtml(data.error || "unknown error") + "</em></p>";
       }
-    } catch (err) {
-      typingBubble.innerHTML = "<p><em>Sorry, I couldn't reach the server. Please try again.</em></p>";
     } finally {
       sendBtn.disabled = false;
       chatArea.scrollTop = chatArea.scrollHeight;
@@ -774,13 +736,23 @@
     prepStatus.classList.remove("error");
     prepStatus.textContent = "Grace is creating your bulletin, projection content, and announcer sheet… (this can take a minute)";
 
+    let data = null;
     try {
       const res = await api("/api/weekly-service", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      data = await res.json();
+    } catch (err) {
+      console.error("Weekly Service Builder request failed:", err);
+      prepStatus.textContent =
+        "Couldn't reach the server or read its response — please check your connection and try again.";
+      prepStatus.classList.add("error");
+      prepBtn.disabled = false;
+      return;
+    }
+    try {
       if (!data.success) {
         prepStatus.textContent = data.error || "Something went wrong. Please try again.";
         prepStatus.classList.add("error");
@@ -790,8 +762,8 @@
       prepData = data;
       prepStatus.textContent = "Done! Review each tab below.";
 
-      document.getElementById("bulletin-content").innerHTML = renderMarkdown(data.bulletin);
-      document.getElementById("announcer-content").innerHTML = renderMarkdown(data.announcer_sheet);
+      document.getElementById("bulletin-content").innerHTML = safeRenderMarkdown(data.bulletin);
+      document.getElementById("announcer-content").innerHTML = safeRenderMarkdown(data.announcer_sheet);
 
       const slidesEl = document.getElementById("slides-content");
       slidesEl.innerHTML = "";
@@ -822,7 +794,10 @@
       prepResults.classList.remove("hidden");
       prepResults.scrollIntoView({ behavior: "smooth" });
     } catch (err) {
-      prepStatus.textContent = "Couldn't reach the server. Please try again.";
+      // The materials arrived but something failed while displaying them.
+      console.error("Weekly Service Builder display failed:", err);
+      prepStatus.textContent =
+        "Your materials were generated but couldn't be displayed — details are in the browser console.";
       prepStatus.classList.add("error");
     } finally {
       prepBtn.disabled = false;
