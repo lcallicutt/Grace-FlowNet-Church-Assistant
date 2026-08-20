@@ -89,7 +89,7 @@ def test_reset_clears_conversation(client):
 class TestAccessGate:
     @pytest.fixture
     def gated(self, client, monkeypatch):
-        monkeypatch.setattr(main, "ACCESS_CODE", "shepherd2026")
+        monkeypatch.setattr(main, "ACCESS_CODE", "test-code-not-a-secret")
         return client
 
     def test_health_and_auth_exempt(self, gated):
@@ -107,10 +107,10 @@ class TestAccessGate:
         assert res.get_json()["valid"] is False
 
     def test_right_code_passes_gate(self, gated):
-        res = gated.post("/api/auth", json={"code": "shepherd2026"})
+        res = gated.post("/api/auth", json={"code": "test-code-not-a-secret"})
         assert res.status_code == 200
         assert res.get_json()["valid"] is True
-        res = gated.get("/api/profile", headers={"X-Access-Code": "shepherd2026"})
+        res = gated.get("/api/profile", headers={"X-Access-Code": "test-code-not-a-secret"})
         assert res.status_code == 200
 
     def test_gate_off_means_open(self, client, monkeypatch):
