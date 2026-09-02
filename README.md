@@ -47,9 +47,9 @@ before starting the server — visitors then enter it once on a lock screen:
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | — (required) | Your Claude API key |
-| `GRACE_MODEL` | `claude-opus-4-8` | Which Claude model to use |
+| `GRACE_MODEL` | `claude-sonnet-5` | Which Claude model to use |
 | `GRACE_MAX_TOKENS` | `4096` | Max chat response length |
-| `GRACE_SERVICE_BUILDER_MAX_TOKENS` | `8192` | Max Weekly Service Builder response length |
+| `GRACE_SERVICE_BUILDER_MAX_TOKENS` | `12288` | Max Weekly Service Builder response length |
 | `GRACE_ACCESS_CODE` | — (unset = open) | When set, the app shows a lock screen and every API request must carry this code |
 | `GRACE_PROFILE_PATH` | `church_profile.json` | Where the church profile is stored |
 | `PORT` | `5000` | Server port |
@@ -90,10 +90,20 @@ conversation. The last 40 messages are retained per session.
 ## Project Layout
 
 ```
-main.py             Flask app + Claude API integration
-prompts.py          Grace's system prompt and enhancements
-static/index.html   Chat UI (self-contained HTML/CSS/JS)
-requirements.txt    Python dependencies
+main.py                 Flask app + Claude API integration
+prompts.py              Grace's system prompt and enhancements
+static/index.html       Chat UI (HTML/CSS/JS)
+static/markdown.js      Markdown renderer (shared with the test suite)
+tests/test_markdown.js  Renderer regression tests (node)
+tests/test_app.py       Backend tests (pytest)
+requirements.txt        Python dependencies
+```
+
+## Running Tests
+
+```bash
+node tests/test_markdown.js       # renderer: formatting, numbers/times, XSS escaping
+python -m pytest tests/test_app.py  # backend: endpoints, profile, usage, access gate
 ```
 
 ## Notes

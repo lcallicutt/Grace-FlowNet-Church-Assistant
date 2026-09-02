@@ -18,10 +18,13 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from prompts import FULL_SYSTEM_PROMPT, WEEKLY_SERVICE_PROMPT
 
-MODEL = os.environ.get("GRACE_MODEL", "claude-opus-4-8")
+MODEL = os.environ.get("GRACE_MODEL", "claude-sonnet-5")
 MAX_TOKENS = int(os.environ.get("GRACE_MAX_TOKENS", "4096"))
+# Sonnet 5 runs adaptive thinking by default, and thinking tokens count
+# against max_tokens — so the service builder gets extra headroom beyond
+# what the three documents themselves need.
 SERVICE_BUILDER_MAX_TOKENS = int(
-    os.environ.get("GRACE_SERVICE_BUILDER_MAX_TOKENS", "8192")
+    os.environ.get("GRACE_SERVICE_BUILDER_MAX_TOKENS", "12288")
 )
 # Keep the last N messages (user + assistant turns) per session so long
 # conversations don't grow without bound.
@@ -154,13 +157,15 @@ def save_profile(data):
 USAGE_PATH = os.environ.get("GRACE_USAGE_PATH", "grace_usage.json")
 usage_lock = threading.Lock()
 
-# claude-opus-4-8 per-million-token rates (USD), for the cost estimate only.
-# Update these if you change GRACE_MODEL to a different pricing tier.
+# claude-sonnet-5 per-million-token list rates (USD), for the cost estimate
+# only. (Intro pricing of $2/$10 runs through 2026-08-31, so estimates are
+# conservative until then.) Update these if you change GRACE_MODEL to a
+# different pricing tier.
 PRICE_PER_MTOK = {
-    "input_tokens": 5.00,
-    "output_tokens": 25.00,
-    "cache_read_input_tokens": 0.50,
-    "cache_creation_input_tokens": 6.25,
+    "input_tokens": 3.00,
+    "output_tokens": 15.00,
+    "cache_read_input_tokens": 0.30,
+    "cache_creation_input_tokens": 3.75,
 }
 USAGE_TOKEN_FIELDS = tuple(PRICE_PER_MTOK)
 
@@ -214,7 +219,7 @@ def usage_summary():
         "totals": {**totals, "estimated_cost_usd": _estimated_cost(totals)},
         "today": recent.get(today),
         "days": recent,
-        "note": "Cost is an estimate from claude-opus-4-8 list prices; the Claude Console is authoritative.",
+        "note": "Cost is an estimate from claude-sonnet-5 list prices; the Claude Console is authoritative.",
     }
 
 
@@ -316,6 +321,12 @@ def call_claude(**kwargs):
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/markdown.js")
+def markdown_js():
+    # index.html loads this relative to "/", not under /static/.
+    return send_from_directory(app.static_folder, "markdown.js")
 
 
 @app.route("/api/health")
