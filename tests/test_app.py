@@ -125,3 +125,131 @@ def test_index_serves_markdown_module(client):
     js = client.get("/markdown.js")
     assert js.status_code == 200
     assert "safeRenderMarkdown" in js.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------------------
+# Railway pilot: health endpoint, DATA_DIR persistence, missing config,
+# and atomic/locked writes.
+# ---------------------------------------------------------------------------
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import threading  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_health_endpoint_returns_200_json(client):
+    res = client.get("/health")
+    assert res.status_code == 200
+    assert res.content_type.startswith("application/json")
+    body = res.get_json()
+    assert body["status"] == "ok"
+    assert body["model"]
+
+
+def test_health_is_never_gated(client, monkeypatch):
+    monkeypatch.setattr(main, "ACCESS_CODE", "test-code-not-a-secret")
+    assert client.get("/health").status_code == 200
+
+
+def _run_in_subprocess(code, env_overrides, cwd):
+    env = dict(os.environ)
+    for var in ("DATA_DIR", "GRACE_PROFILE_PATH", "GRACE_USAGE_PATH"):
+        env.pop(var, None)
+    env.update(env_overrides)
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    return subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=cwd,
+    )
+
+
+def test_data_dir_controls_storage_paths(tmp_path):
+    code = (
+        "import main, json;"
+        "main.save_profile({'church_name': 'Volume Test'});"
+        "print(main.PROFILE_PATH);"
+        "print(main.USAGE_PATH)"
+    )
+    result = _run_in_subprocess(code, {"DATA_DIR": str(tmp_path)}, cwd=REPO_ROOT)
+    assert result.returncode == 0, result.stderr
+    profile_path, usage_path = result.stdout.strip().splitlines()
+    assert profile_path == str(tmp_path / "church_profile.json")
+    assert usage_path == str(tmp_path / "grace_usage.json")
+    saved = json.loads((tmp_path / "church_profile.json").read_text())
+    assert saved["church_name"] == "Volume Test"
+
+
+def test_without_data_dir_files_stay_local(tmp_path):
+    workdir = tmp_path / "local-project"
+    workdir.mkdir()
+    code = (
+        "import main;"
+        "main.save_profile({'church_name': 'Local Test'});"
+        "print(main.PROFILE_PATH)"
+    )
+    result = _run_in_subprocess(code, {}, cwd=workdir)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "church_profile.json"
+    assert (workdir / "church_profile.json").exists()
+
+
+def test_data_dir_is_created_if_missing(tmp_path):
+    target = tmp_path / "nested" / "data"
+    result = _run_in_subprocess(
+        "import main; print(main.DATA_DIR)", {"DATA_DIR": str(target)}, cwd=REPO_ROOT
+    )
+    assert result.returncode == 0, result.stderr
+    assert target.is_dir()
+
+
+def test_missing_api_key_returns_clean_json_error(client, monkeypatch):
+    def no_credentials(**kwargs):
+        raise TypeError(
+            "Could not resolve authentication method. Expected one of api_key, "
+            "auth_token, or credentials to be set."
+        )
+
+    monkeypatch.setattr(
+        main, "client", SimpleNamespace(messages=SimpleNamespace(create=no_credentials))
+    )
+    res = client.post("/api/chat", json={"message": "hello"})
+    assert res.status_code == 500
+    body = res.get_json()
+    assert body["success"] is False
+    assert "API key" in body["error"]
+
+
+def test_concurrent_usage_writes_stay_consistent(client):
+    usage = SimpleNamespace(
+        input_tokens=10,
+        output_tokens=20,
+        cache_read_input_tokens=0,
+        cache_creation_input_tokens=0,
+    )
+    threads = [
+        threading.Thread(target=main.record_usage, args=("chat", usage))
+        for _ in range(20)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # File must be valid JSON with every write accounted for.
+    with open(main.USAGE_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    totals = client.get("/api/usage").get_json()["totals"]
+    assert totals["requests"] == 20
+    assert totals["input_tokens"] == 200
+    assert data["days"]
+
+
+def test_atomic_write_leaves_no_temp_files(tmp_path):
+    target = tmp_path / "out.json"
+    main.atomic_write_json(str(target), {"ok": True})
+    assert json.loads(target.read_text()) == {"ok": True}
+    leftovers = [p for p in tmp_path.iterdir() if p.suffix == ".tmp"]
+    assert leftovers == []
