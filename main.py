@@ -6,12 +6,19 @@ Claude API with per-session conversation memory, plus a structured
 announcer sheet from one set of weekly information.
 """
 
+import contextlib
 import datetime
 import hmac
 import json
 import os
+import tempfile
 import threading
 import uuid
+
+try:
+    import fcntl  # POSIX only; production (Railway/Linux) always has it
+except ImportError:  # pragma: no cover - Windows dev fallback
+    fcntl = None
 
 import anthropic
 from flask import Flask, jsonify, request, send_from_directory
@@ -118,10 +125,57 @@ conversations = {}
 conversations_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
+# Persistent data directory. On Railway, mount a volume and set DATA_DIR to
+# its mount path (e.g. /data) so the profile and usage files survive
+# deploys. Unset DATA_DIR = files live in the project directory (local dev).
+# ---------------------------------------------------------------------------
+DATA_DIR = os.environ.get("DATA_DIR", "").strip()
+if DATA_DIR:
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def data_path(filename):
+    """Resolve a data file under DATA_DIR when configured, else locally."""
+    return os.path.join(DATA_DIR, filename) if DATA_DIR else filename
+
+
+@contextlib.contextmanager
+def file_lock(path):
+    """Advisory cross-process lock guarding read-modify-write on `path`."""
+    if fcntl is None:  # pragma: no cover - non-POSIX fallback
+        yield
+        return
+    lock_path = path + ".lock"
+    with open(lock_path, "w", encoding="utf-8") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+
+def atomic_write_json(path, data):
+    """Write JSON via a temp file + os.replace so readers never see a
+    partial file, even if the process dies mid-write."""
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+
+# ---------------------------------------------------------------------------
 # Church profile: persisted to a JSON file so the admin enters their church's
 # boilerplate (name, service times, standing announcements) exactly once.
 # ---------------------------------------------------------------------------
-PROFILE_PATH = os.environ.get("GRACE_PROFILE_PATH", "church_profile.json")
+PROFILE_PATH = os.environ.get("GRACE_PROFILE_PATH") or data_path("church_profile.json")
 PROFILE_FIELDS = (
     "church_name",
     "service_times",
@@ -144,9 +198,8 @@ def load_profile():
 
 def save_profile(data):
     profile = {k: str(data.get(k, "") or "").strip() for k in PROFILE_FIELDS}
-    with profile_lock:
-        with open(PROFILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(profile, f, indent=2)
+    with profile_lock, file_lock(PROFILE_PATH):
+        atomic_write_json(PROFILE_PATH, profile)
     return profile
 
 
@@ -154,7 +207,7 @@ def save_profile(data):
 # Usage tracking: per-day request and token counts, persisted to a JSON file
 # so you can watch pilot usage without opening the Anthropic Console.
 # ---------------------------------------------------------------------------
-USAGE_PATH = os.environ.get("GRACE_USAGE_PATH", "grace_usage.json")
+USAGE_PATH = os.environ.get("GRACE_USAGE_PATH") or data_path("grace_usage.json")
 usage_lock = threading.Lock()
 
 # claude-sonnet-5 per-million-token list rates (USD), for the cost estimate
@@ -188,7 +241,10 @@ def _estimated_cost(counts):
 def record_usage(endpoint, usage):
     """Add one API response's usage to today's counters."""
     today = datetime.date.today().isoformat()
-    with usage_lock:
+    # Thread lock for in-process safety; file lock so the whole
+    # read-modify-write is atomic across processes; atomic write so a
+    # crash mid-write can't corrupt the file.
+    with usage_lock, file_lock(USAGE_PATH):
         data = _load_usage()
         day = data["days"].setdefault(
             today, {"requests": {}, **{k: 0 for k in USAGE_TOKEN_FIELDS}}
@@ -196,8 +252,7 @@ def record_usage(endpoint, usage):
         day["requests"][endpoint] = day["requests"].get(endpoint, 0) + 1
         for field in USAGE_TOKEN_FIELDS:
             day[field] += getattr(usage, field, None) or 0
-        with open(USAGE_PATH, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        atomic_write_json(USAGE_PATH, data)
 
 
 def usage_summary():
@@ -329,8 +384,10 @@ def markdown_js():
     return send_from_directory(app.static_folder, "markdown.js")
 
 
+@app.route("/health")
 @app.route("/api/health")
 def health():
+    """Health check for Railway (and humans). Always open, never gated."""
     return jsonify({"status": "ok", "model": MODEL})
 
 
@@ -533,6 +590,10 @@ def reset():
             conversations.pop(session_id, None)
     return jsonify({"success": True})
 
+
+# Debug mode stays off everywhere; production serves via gunicorn (see
+# railway.toml), which never touches this block.
+app.debug = False
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5000"))

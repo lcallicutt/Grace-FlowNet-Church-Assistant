@@ -51,7 +51,8 @@ before starting the server — visitors then enter it once on a lock screen:
 | `GRACE_MAX_TOKENS` | `4096` | Max chat response length |
 | `GRACE_SERVICE_BUILDER_MAX_TOKENS` | `12288` | Max Weekly Service Builder response length |
 | `GRACE_ACCESS_CODE` | — (unset = open) | When set, the app shows a lock screen and every API request must carry this code |
-| `GRACE_PROFILE_PATH` | `church_profile.json` | Where the church profile is stored |
+| `DATA_DIR` | — (unset = project dir) | Directory for persistent JSON files (`church_profile.json`, `grace_usage.json`); set to your Railway volume mount path |
+| `GRACE_PROFILE_PATH` | `DATA_DIR/church_profile.json` | Override the profile file location |
 | `PORT` | `5000` | Server port |
 
 ## API
@@ -65,6 +66,7 @@ before starting the server — visitors then enter it once on a lock screen:
 | `/api/auth` | GET / POST | POST: `{"code": "..."}` | GET: is an access code required? POST: verify a code |
 | `/api/reset` | POST | `{"session_id": "..."}` | Clear a conversation |
 | `/api/health` | GET | — | Health check |
+| `/health` | GET | — | Health check (used by Railway; never behind the access code) |
 
 ### Weekly Service Builder
 
@@ -91,6 +93,7 @@ conversation. The last 40 messages are retained per session.
 
 ```
 main.py                 Flask app + Claude API integration
+railway.toml            Railway build/deploy configuration
 prompts.py              Grace's system prompt and enhancements
 static/index.html       Chat UI (HTML/CSS/JS)
 static/markdown.js      Markdown renderer (shared with the test suite)
@@ -98,6 +101,50 @@ tests/test_markdown.js  Renderer regression tests (node)
 tests/test_app.py       Backend tests (pytest)
 requirements.txt        Python dependencies
 ```
+
+## Deploying to Railway (30-day pilot setup)
+
+The repo ships a `railway.toml` that configures the production start command,
+health check, and restart policy:
+
+```
+gunicorn main:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+```
+
+One gunicorn worker with threads keeps the in-process conversation memory and
+file locking correct; the 120s timeout leaves room for long Weekly Service
+Builder generations.
+
+### Steps
+
+1. **Create the service** — in Railway: *New Project → Deploy from GitHub
+   repo* and select this repository. Railway reads `railway.toml`
+   automatically; no Procfile needed.
+2. **Add a volume** — on the service: *Settings → Volumes → Add Volume*,
+   mount path `/data`. This is where the church profile and usage counters
+   live so they survive every deploy and restart.
+3. **Set environment variables** — on the service: *Variables*:
+
+   | Variable | Value |
+   | --- | --- |
+   | `ANTHROPIC_API_KEY` | your key (from a dedicated Claude Console workspace with a spend limit) |
+   | `GRACE_ACCESS_CODE` | the passcode you'll share with the church |
+   | `DATA_DIR` | `/data` (the volume mount path) |
+
+   Secrets are read **only** from environment variables — nothing is stored
+   in the repo or on disk.
+4. **Deploy** — Railway builds and starts the service. The health check polls
+   `GET /health`; the deploy goes live once it returns 200.
+5. **Verify** — open the public URL: you should see the Grace Ministry Hub
+   lock screen. Enter the access code, save the Church Profile, and confirm
+   it's still there after a redeploy (that proves the volume is wired up).
+
+### Data safety
+
+Writes to the JSON files use a temp-file + atomic rename plus an advisory
+file lock, so a crash or concurrent request can never leave a half-written
+or corrupted file. Flask debug mode is disabled; production traffic is
+served by gunicorn, never the dev server.
 
 ## Running Tests
 

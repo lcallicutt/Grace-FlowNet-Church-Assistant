@@ -3,5 +3,7 @@ __pycache__/
 .env
 church_profile.json
 grace_usage.json
+*.json.lock
+*.tmp
 venv/
 .venv/
